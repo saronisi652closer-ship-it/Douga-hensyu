@@ -3,7 +3,7 @@
 // ★ ファイルを更新して GitHub に上げ直したら、下の VERSION の数字を変えること。
 //   （変えなくても次回起動時に裏で新しいファイルを取りに行くが、変えると確実に切り替わる）
 
-const VERSION = 'kiritoru-v2';
+const VERSION = 'kiritoru-v3';
 const FILES = [
   './',
   './index.html',
@@ -21,6 +21,9 @@ const FILES = [
   './sceneAnalyzer.js',
   './recommend.js',
   './export.js',
+  './vtuber.js',
+  './vtuber.css',
+  './avatarRenderer.js',
   './icon.svg',
   './icon-192.png',
   './icon-512.png',

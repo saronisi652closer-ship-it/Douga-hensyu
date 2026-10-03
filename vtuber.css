@@ -1,0 +1,54 @@
+/* vtuber.css — VTuber収録画面。色やボタンは style.css の変数・部品をそのまま使う。
+   すべて #vtuber の中だけに効くようにしてあり、編集画面の見た目には影響しない。 */
+
+#vtuber {
+  height: 100dvh; display: grid;
+  grid-template: "bar" auto "stage" auto "side" minmax(0, 1fr) / minmax(0, 1fr);
+}
+#vtuber .bar { grid-area: bar; }
+#vtuber .bar-title { color: var(--text); font-weight: 700; font-size: 15px; }
+
+.vt-stage { grid-area: stage; position: relative; background: #000; display: grid; place-items: center; min-height: 0; }
+.vt-canvas { display: block; width: 100%; max-height: 38dvh; aspect-ratio: 16 / 9; object-fit: contain; }
+.vt-badge {
+  position: absolute; top: 8px; padding: 3px 10px; border-radius: 12px;
+  background: rgba(15, 17, 30, .72); font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.vt-track { left: 8px; }
+.vt-timer { right: 8px; }
+
+.vt-side { grid-area: side; display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; }
+.vt-controls { overflow-y: auto; overscroll-behavior: contain; padding: 4px 14px 16px; }
+.vt-group { max-width: 640px; margin: 0 auto; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.vt-group:last-child { border-bottom: 0; }
+.vt-group h2 { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.vt-group .btn { margin-top: 8px; }
+.vt-group .hint { margin-bottom: 0; }
+.vt-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.vt-status { display: flex; align-items: center; gap: 8px; margin: 0; }
+.vt-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+.vt-status.connected .vt-dot { background: #5fd38a; }
+.vt-method { margin-left: auto; color: var(--muted); font-size: 12.5px; }
+
+.vt-swatches { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.vt-swatch { width: 44px; height: 44px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3); }
+.vt-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
+
+.vt-meter { flex: 1; min-width: 100px; height: 10px; border-radius: 5px; background: var(--surface-2); overflow: hidden; }
+.vt-meter i { display: block; height: 100%; background: var(--accent); transform: scaleX(0); transform-origin: left; }
+
+.vt-recbar {
+  display: flex; align-items: center; gap: 14px; padding: 10px 16px calc(10px + var(--safe-b));
+  background: var(--surface); border-top: 1px solid var(--line);
+}
+.vt-recbar p { margin: 0; color: var(--muted); font-size: 12.5px; }
+.vt-rec { width: 60px; height: 60px; border-radius: 50%; border: 3px solid var(--text); display: grid; place-items: center; flex: none; }
+.vt-rec i { width: 42px; height: 42px; border-radius: 50%; background: var(--hot); }
+
+/* タブレット横向き・PC: 左にキャラクター、右に操作 */
+@media (min-width: 900px) {
+  #vtuber { grid-template: "bar bar" auto "stage side" minmax(0, 1fr) / minmax(0, 1fr) 400px; }
+  .vt-canvas { max-height: 100%; height: 100%; }
+  .vt-side { border-left: 1px solid var(--line); }
+}

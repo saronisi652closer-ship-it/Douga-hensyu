@@ -31,6 +31,8 @@
     </button>
     <p class="home-note">動画は端末の中だけで処理します。どこにも送信しません。</p>
 
+    <button id="vtuber-open" class="btn ghost">VTuber収録</button>
+
     <section id="recent" hidden>
       <h2>続きから編集する</h2>
       <p class="hint">編集内容は保存されています。同じ動画を選び直すと続きから始まります。</p>
@@ -40,6 +42,9 @@
     <button id="install" class="btn ghost" hidden>ホーム画面に追加する</button>
   </div>
 </div>
+
+<!-- ================= VTuber収録（中身は vtuber.js が描画。ボタンを押すまで読み込まない） ================= -->
+<div id="vtuber" class="screen" hidden></div>
 
 <!-- ================= 編集画面 ================= -->
 <div id="editor" class="screen" hidden>

@@ -31,6 +31,20 @@ fileInput.addEventListener('change', () => {
   fileInput.value = '';
   if (file) openFile(file);
 });
+// VTuber収録。使わない人に影響しないよう、押したときに初めて vtuber.js を読み込む
+$('#vtuber-open').addEventListener('click', async () => {
+  try {
+    const { openVtuber } = await import('./vtuber.js');
+    $('#home').hidden = true;
+    await openVtuber({ root: $('#vtuber'), onClose: () => { $('#home').hidden = false; renderRecent(); } });
+  } catch (e) {
+    console.error(e);
+    $('#vtuber').hidden = true;
+    $('#home').hidden = false;
+    toast('VTuber収録を開けませんでした。通信状況を確認して、もう一度試してください。', null, 6000);
+  }
+});
+
 // PC ではドラッグ＆ドロップでも開ける
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => {

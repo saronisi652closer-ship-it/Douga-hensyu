@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>キリトル — 動画カットとおすすめシーン抽出</title>
+  <meta name="description" content="端末の中だけで動く動画カット＆おすすめシーン抽出アプリ">
+  <meta name="theme-color" content="#1b1d2e">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ================= ホーム ================= -->
+<div id="home" class="screen">
+  <div class="home-inner">
+    <header class="home-head">
+      <img src="icons/icon.svg" alt="" width="52" height="52">
+      <div>
+        <h1>キリトル</h1>
+        <p>動画をカットして、盛り上がった場面を自動で見つける</p>
+      </div>
+    </header>
+
+    <button id="pick" class="pick">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      <span>動画を選ぶ</span>
+      <small>MP4 / WebM / MOV など</small>
+    </button>
+    <p class="home-note">動画は端末の中だけで処理します。どこにも送信しません。</p>
+
+    <section id="recent" hidden>
+      <h2>続きから編集する</h2>
+      <p class="hint">編集内容は保存されています。同じ動画を選び直すと続きから始まります。</p>
+      <ul id="recent-list"></ul>
+    </section>
+
+    <button id="install" class="btn ghost" hidden>ホーム画面に追加する</button>
+  </div>
+</div>
+
+<!-- ================= 編集画面 ================= -->
+<div id="editor" class="screen" hidden>
+  <header class="bar">
+    <button id="back" class="icon-btn" aria-label="ホームに戻る">
+      <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
+    <div id="title" class="bar-title"></div>
+    <button id="undo" class="icon-btn" aria-label="元に戻す" disabled>
+      <svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 010 12"/></svg>
+    </button>
+    <button id="redo" class="icon-btn" aria-label="やり直す" disabled>
+      <svg viewBox="0 0 24 24"><path d="M15 7l5 5-5 5"/><path d="M20 12H10a6 6 0 000 12"/></svg>
+    </button>
+  </header>
+
+  <div class="work">
+    <section class="stage">
+      <video id="preview" playsinline preload="auto"></video>
+      <button id="source-badge" class="source-badge" hidden></button>
+    </section>
+
+    <div class="transport">
+      <button id="play" class="play-btn" aria-label="再生">
+        <svg class="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        <svg class="i-pause" viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+      </button>
+      <div class="timecode"><span id="time-now">0:00.0</span><span class="sep">/</span><span id="time-total">0:00.0</span></div>
+      <div class="zoom">
+        <button id="zoom-out" class="icon-btn sm" aria-label="タイムラインを縮小"><svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button>
+        <button id="zoom-fit" class="chip-btn">全体</button>
+        <button id="zoom-in" class="icon-btn sm" aria-label="タイムラインを拡大"><svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg></button>
+      </div>
+    </div>
+
+    <section id="timeline" aria-label="タイムライン"></section>
+  </div>
+
+  <section class="panels">
+    <!-- 編集 -->
+    <div id="panel-edit" class="panel">
+      <p id="clip-summary" class="clip-summary"></p>
+      <div class="tools">
+        <button id="act-split" class="tool"><svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M4 8h5v8H4zM15 8h5v8h-5z"/></svg>ここで分割</button>
+        <button id="act-in" class="tool"><svg viewBox="0 0 24 24"><path d="M8 4v16"/><path d="M8 12h11M15 8l4 4-4 4"/></svg>ここから始める</button>
+        <button id="act-out" class="tool"><svg viewBox="0 0 24 24"><path d="M16 4v16"/><path d="M16 12H5M9 8l-4 4 4 4"/></svg>ここで終える</button>
+        <button id="act-delete" class="tool danger"><svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/></svg>削除</button>
+        <button id="act-left" class="tool"><svg viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></svg>前へ移動</button>
+        <button id="act-right" class="tool"><svg viewBox="0 0 24 24"><path d="M10 6l6 6-6 6"/></svg>後ろへ移動</button>
+      </div>
+      <div class="nudge">
+        <div class="nudge-row">
+          <span>開始</span>
+          <button data-nudge="in" data-d="-0.1">−0.1秒</button>
+          <output id="clip-in">0:00.0</output>
+          <button data-nudge="in" data-d="0.1">＋0.1秒</button>
+        </div>
+        <div class="nudge-row">
+          <span>終了</span>
+          <button data-nudge="out" data-d="-0.1">−0.1秒</button>
+          <output id="clip-out">0:00.0</output>
+          <button data-nudge="out" data-d="0.1">＋0.1秒</button>
+        </div>
+      </div>
+      <p class="hint">クリップを選ぶと両端に出るつまみをドラッグしても、開始・終了を調整できます。</p>
+      <button id="act-reset" class="btn ghost">動画全体の状態に戻す</button>
+    </div>
+
+    <!-- おすすめ（中身は js/recommend.js が描画） -->
+    <div id="panel-recommend" class="panel" hidden></div>
+
+    <!-- 書き出し -->
+    <div id="panel-export" class="panel" hidden>
+      <div id="export-form">
+        <div class="field-grid">
+          <label>形式<select id="ex-format"></select></label>
+          <label>画質<select id="ex-quality">
+            <option value="480">480p</option><option value="720">720p</option><option value="1080">1080p</option>
+          </select></label>
+          <label>FPS<select id="ex-fps">
+            <option value="24">24</option><option value="30">30</option><option value="60">60</option>
+          </select></label>
+          <label>ビットレート<select id="ex-bitrate">
+            <option value="0">自動</option><option value="2000000">2 Mbps</option><option value="4000000">4 Mbps</option>
+            <option value="6000000">6 Mbps</option><option value="8000000">8 Mbps</option><option value="12000000">12 Mbps</option>
+          </select></label>
+        </div>
+        <p id="ex-summary" class="ex-summary"></p>
+        <button id="ex-start" class="btn primary">動画を書き出す</button>
+        <p class="hint">書き出しには動画の長さと同じくらいの時間がかかります。終わるまでこの画面を開いたままにしてください。</p>
+      </div>
+      <div id="export-progress" hidden>
+        <p class="progress-label"><span id="ex-stage">書き出し中</span><span id="ex-pct">0%</span></p>
+        <div class="progress"><i id="ex-bar"></i></div>
+        <p id="ex-eta" class="hint"></p>
+        <button id="ex-cancel" class="btn ghost">書き出しを中止</button>
+      </div>
+      <div id="export-result" hidden>
+        <p class="result-title">書き出しました</p>
+        <p id="ex-result-info" class="hint"></p>
+        <a id="ex-save" class="btn primary">端末に保存</a>
+        <button id="ex-share" class="btn ghost" hidden>共有する</button>
+        <button id="ex-again" class="btn ghost">設定を変えてもう一度</button>
+      </div>
+    </div>
+
+    <!-- 情報 -->
+    <div id="panel-info" class="panel" hidden>
+      <dl id="info-list" class="info"></dl>
+      <p class="hint">編集内容と解析結果はこのブラウザに自動保存されます。動画ファイル本体は保存しません（容量を圧迫しないため）。</p>
+      <button id="act-forget" class="btn ghost danger">このプロジェクトの保存データを消す</button>
+    </div>
+  </section>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="edit" aria-selected="true"><svg viewBox="0 0 24 24"><circle cx="6" cy="7" r="2.5"/><circle cx="6" cy="17" r="2.5"/><path d="M8 8.5l12 8M8 15.5l12-8"/></svg>編集</button>
+    <button role="tab" data-tab="recommend" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3 18l4-6 3 3 4-9 3 6 4-2"/></svg>おすすめ</button>
+    <button role="tab" data-tab="export" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>書き出し</button>
+    <button role="tab" data-tab="info" aria-selected="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v6M12 7.5v.5"/></svg>情報</button>
+  </nav>
+</div>
+
+<input id="file-input" type="file" accept="video/*,.mp4,.webm,.mov,.m4v,.mkv" hidden>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

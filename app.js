@@ -36,7 +36,12 @@ $('#vtuber-open').addEventListener('click', async () => {
   try {
     const { openVtuber } = await import('./vtuber.js');
     $('#home').hidden = true;
-    await openVtuber({ root: $('#vtuber'), onClose: () => { $('#home').hidden = false; renderRecent(); } });
+    await openVtuber({
+      root: $('#vtuber'),
+      onClose: () => { $('#home').hidden = false; renderRecent(); },
+      // 録画した動画を、通常の動画と同じ入口（openFile）から編集画面へ渡す
+      onEdit: async (file) => { await openFile(file); return state.file === file; },
+    });
   } catch (e) {
     console.error(e);
     $('#vtuber').hidden = true;

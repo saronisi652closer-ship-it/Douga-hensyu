@@ -39,12 +39,44 @@
 .vt-meter i { display: block; height: 100%; background: var(--accent); transform: scaleX(0); transform-origin: left; }
 
 .vt-recbar {
-  display: flex; align-items: center; gap: 14px; padding: 10px 16px calc(10px + var(--safe-b));
+  display: grid; gap: 10px; padding: 10px 16px calc(10px + var(--safe-b));
   background: var(--surface); border-top: 1px solid var(--line);
 }
-.vt-recbar p { margin: 0; color: var(--muted); font-size: 12.5px; }
+.vt-rec-main { display: flex; align-items: center; gap: 14px; }
+.vt-rec-text { display: grid; min-width: 0; }
+.vt-rec-text span { color: var(--muted); font-size: 12.5px; }
 .vt-rec { width: 60px; height: 60px; border-radius: 50%; border: 3px solid var(--text); display: grid; place-items: center; flex: none; }
-.vt-rec i { width: 42px; height: 42px; border-radius: 50%; background: var(--hot); }
+.vt-rec i { width: 42px; height: 42px; border-radius: 50%; background: var(--hot); transition: border-radius .15s, width .15s, height .15s; }
+.vt-rec.stop i { width: 24px; height: 24px; border-radius: 5px; }           /* 停止は四角 */
+.vt-rec-chips { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vt-chip { white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 4px 12px; border-radius: 18px; background: var(--surface-2); font-size: 13px; }
+
+/* 録画時間の表示。録画中は赤い点が点滅する */
+.vt-timer { display: inline-flex; align-items: center; gap: 6px; }
+.vt-timer i { display: none; width: 9px; height: 9px; border-radius: 50%; background: var(--hot); }
+.vt-timer.rec i { display: block; animation: vt-blink 1.2s steps(2, start) infinite; }
+.vt-timer.rec::after { content: "録画中"; font-size: 11px; color: var(--muted); margin-left: 2px; }
+@keyframes vt-blink { to { visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { .vt-timer.rec i { animation: none; } }
+
+/* 録画後の3つのボタン */
+.vt-result-title { margin: 0; display: flex; align-items: baseline; gap: 10px; }
+.vt-result-title span { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.vt-result .btn { margin-top: 0; }
+.vt-result { display: grid; gap: 8px; }
+.vt-result-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.vt-result .hint { margin: 0; }
+
+/* ---------- 録画中モード: プレビューを大きく、設定は隠す（「設定」で一時的に開ける） ---------- */
+#vtuber.recording:not(.show-settings) { grid-template: "stage" minmax(0, 1fr) "side" auto / minmax(0, 1fr); }
+#vtuber.recording:not(.show-settings) .bar,
+#vtuber.recording:not(.show-settings) .vt-controls { display: none; }
+#vtuber.recording:not(.show-settings) .vt-canvas { width: 100%; height: 100%; max-height: 100%; }
+#vtuber.recording:not(.show-settings) .vt-side { border-left: 0; grid-template-rows: auto; }
+@media (min-width: 700px) {
+  #vtuber.recording:not(.show-settings) .vt-recbar { grid-template-columns: auto 1fr; align-items: center; }
+  #vtuber.recording:not(.show-settings) .vt-rec-chips { justify-content: flex-end; }
+}
 
 /* タブレット横向き・PC: 左にキャラクター、右に操作 */
 @media (min-width: 900px) {

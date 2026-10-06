@@ -3,12 +3,15 @@
 // STEP 2: 画面と基本動作。外部ライブラリなし。
 //   ・ダミーキャラクターが待機モーションで動き、マイクの音量で口が動く
 //   ・背景（色 / 画像）、キャラクター選択、マイクON/OFFと音量表示
-//   ・スマホ接続は「枠」だけ（STEP 3 で中身を入れる）
 // STEP 6・7: 録画と、編集画面への受け渡し。
 //   ・録画中は「録画中モード」（プレビューを大きく、設定は隠す）
 //   ・停止後は 編集する / 端末に保存 / 撮り直す
 //   ・「編集する」は録画データを File にして、app.js から渡された onEdit(file) を呼ぶ
 //     （中身は既存の openFile(file)）
+// STEP 3: スマホ（顔トラッカー）との接続。
+//   ・接続コードとQRコードを出して待ち受け、届いた数値でキャラクターを動かす
+//   ・通信は trackingTransport.js、データの形は trackingProtocol.js に分けてある
+//   ・通信が切れても収録画面と録画は止めない（キャラクターは待機モーションに戻る）
 //
 // 作りの方針:
 //   ・姿勢データ(pose)を作る部分 / キャラクターを描く部分 / 画面に出す部分 を分けてある。
@@ -19,12 +22,16 @@
 import { toast, clamp, fmtTime, fmtBytes, keepAwake } from './utils.js';
 import { AVATARS, neutralPose } from './avatarRenderer.js';
 import { createStageStream, StageRecorder } from './stageRecorder.js';
+import { createTransport, newRoomCode } from './trackingTransport.js';
+import { MSG, createFrame, readFrame, frameToPose } from './trackingProtocol.js';
 
 const STAGE_W = 1280, STAGE_H = 720, STAGE_FPS = 30;
 const BG_COLORS = [
   ['#20243c', '藍'], ['#00b140', 'グリーンバック'], ['#2f6fd6', '青'], ['#ffd9e4', '桜'], ['#f4f4f6', '白'],
 ];
 const PREF_KEY = 'kiritoru.vtuber';
+const ROOM_KEY = 'kiritoru.room';       // 接続コードは端末に覚えておく（同じQRで再接続できる）
+const TRACK_FRESH_MS = 1000;            // これより新しいデータがあれば「トラッキング中」
 
 let session = null;
 
@@ -64,8 +71,16 @@ const TEMPLATE = `
       <section class="vt-group">
         <h2>スマホ（顔トラッカー）</h2>
         <p class="vt-status"><i class="vt-dot"></i><span data-out="conn">未接続</span><span class="vt-method" data-out="method">接続方式 —</span></p>
-        <button class="btn ghost" data-act="connect" disabled>スマホを接続（準備中）</button>
-        <p class="hint">接続は次の段階で追加します。今は待機モーションで動きます。</p>
+        <div class="vt-link" hidden>
+          <div class="vt-qr" data-out="qr"></div>
+          <div class="vt-link-text">
+            <p>スマホのカメラでQRコードを読み取ってください。</p>
+            <p class="hint">読み取れないときは、スマホで <span data-out="tracker-url"></span> を開いて、下のコードを入力します。</p>
+            <p class="vt-code" data-out="code"></p>
+          </div>
+        </div>
+        <button class="btn ghost" data-act="connect">スマホを接続</button>
+        <p class="hint" data-out="conn-hint"></p>
       </section>
 
       <section class="vt-group">
@@ -138,7 +153,12 @@ export async function openVtuber({ root, onClose, onEdit }) {
 
   const s = session = {
     root, onClose, onEdit, canvas, ctx, q,
-    pose: neutralPose(),
+    pose: neutralPose(),      // キャラクターに渡す最終的な姿勢
+    idle: neutralPose(),      // 待機モーションの姿勢
+    link: {                   // スマホとの接続
+      transport: null, state: 'closed', info: {}, room: '', route: '',
+      frame: createFrame(), tracked: neutralPose(), lastAt: 0, weight: 0, badge: '',
+    },
     avatar: null,
     bg: { color: BG_COLORS.some(([c]) => c === prefs.color) ? prefs.color : BG_COLORS[0][0], image: null, imageUrl: null },
     audio: null,   // { ctx, dest } 録画用の音声の出口。最初に必要になったとき作る
@@ -209,6 +229,13 @@ export async function openVtuber({ root, onClose, onEdit }) {
   q('[data-act=mic]').addEventListener('click', () => toggleMic(s));
   q('[data-act=mic-chip]').addEventListener('click', () => toggleMic(s));
 
+  // ----- スマホ接続 -----
+  q('[data-act=connect]').addEventListener('click', () => {
+    const st = s.link.state;
+    if (st === 'closed' || st === 'error') connectLink(s); else disconnectLink(s);
+  });
+  renderLink(s);
+
   // ----- 録画 -----
   q('[data-act=record]').addEventListener('click', () => (s.rec ? stopRecording(s) : startRecording(s)));
   q('[data-act=settings]').addEventListener('click', (e) => {
@@ -244,6 +271,7 @@ export function closeVtuber({ toHome = true } = {}) {
   cancelAnimationFrame(s.raf);
   window.removeEventListener('beforeunload', onBeforeUnload);
   if (s.rec) { s.rec.stop(); s.rec = null; }   // 破棄
+  s.link.transport?.close();
   s.releaseWake?.();
   stopMic(s);
   try { s.audio?.ctx.close(); } catch { /* noop */ }
@@ -421,10 +449,9 @@ function readMic(m) {
   return clamp((db + 55) / 40, 0, 1);
 }
 
-// ---------- 姿勢データの出どころ: 待機モーション ----------
-// STEP 5 では、スマホから届いた数値で同じ pose を書き換える処理に差し替える。
+// ---------- 姿勢データの出どころ(1): 待機モーション ----------
 function idlePose(s, t, dt) {
-  const p = s.pose;
+  const p = s.idle;
   p.tracked = false;
   p.yaw = Math.sin(t * 0.6) * 0.16;
   p.pitch = Math.sin(t * 0.43 + 1) * 0.08;
@@ -443,6 +470,155 @@ function idlePose(s, t, dt) {
   p.mouthOpen += (target - p.mouthOpen) * Math.min(1, dt * (target > p.mouthOpen ? 30 : 12));
   p.smile = 0.3;
   p.browUp = p.mouthOpen * 0.4;
+}
+
+// ---------- 姿勢データの出どころ(2): スマホの顔トラッカー ----------
+const POSE_KEYS = ['yaw', 'pitch', 'roll', 'blinkL', 'blinkR', 'mouthOpen', 'smile', 'browUp'];
+
+/** 待機モーションとトラッキングを混ぜて s.pose を作る。
+ *  データが届いている間はトラッキング、途切れたら最後の姿勢からゆっくり待機モーションへ戻る */
+function mixPose(s, now, dt) {
+  const L = s.link;
+  const live = L.state === 'connected' && L.lastAt > 0 && now - L.lastAt < TRACK_FRESH_MS && L.frame.faceDetected;
+  L.weight += ((live ? 1 : 0) - L.weight) * Math.min(1, dt * (live ? 10 : 2));
+  if (L.weight < 0.002) L.weight = 0;
+  const w = L.weight, a = s.idle, b = L.tracked, p = s.pose;
+  for (let i = 0; i < POSE_KEYS.length; i++) {
+    const k = POSE_KEYS[i];
+    p[k] = a[k] + (b[k] - a[k]) * w;
+  }
+  p.tracked = live;
+
+  const badge = live ? 'トラッキング中' : L.state === 'reconnecting' ? '接続が切れました' : '待機モーション';
+  if (badge !== L.badge) { L.badge = badge; s.q('.vt-track').textContent = badge; }
+}
+
+function loadRoom() {
+  try {
+    const saved = localStorage.getItem(ROOM_KEY);
+    if (/^[A-Z0-9]{6}$/.test(saved || '')) return saved;
+  } catch { /* 下で作る */ }
+  return saveRoom(newRoomCode());
+}
+function saveRoom(code) {
+  try { localStorage.setItem(ROOM_KEY, code); } catch { /* 覚えられなくても接続はできる */ }
+  return code;
+}
+
+async function connectLink(s) {
+  const L = s.link;
+  L.transport?.close();
+  L.room = L.room || loadRoom();
+  const tr = L.transport = createTransport('peerjs');
+  tr.onState = (state, info) => {
+    if (session !== s || L.transport !== tr) return;
+    if (state === 'error' && info.code === 'id-taken') {
+      // 同じコードが使用中 → 新しいコードで待ち受け直す
+      L.room = saveRoom(newRoomCode());
+      tr.host(L.room).catch(() => {});
+      return;
+    }
+    const prev = L.state;
+    L.state = state; L.info = info;
+    if (state === 'connected') {
+      if (prev !== 'connected') toast('スマホと接続しました');
+      tr.describeRoute().then((r) => { if (L.transport === tr) { L.route = r; renderLink(s); } });
+      // つながって少し経つと経路が確定するので、もう一度確かめる
+      setTimeout(() => tr.describeRoute().then((r) => { if (L.transport === tr && r) { L.route = r; renderLink(s); } }), 3000);
+    } else if (state === 'reconnecting' && prev === 'connected') {
+      toast('スマホとの接続が切れました。再接続を待っています。', null, 5000);
+    }
+    renderLink(s);
+  };
+  tr.onMessage = (msg) => {
+    if (L.transport !== tr) return;
+    if (msg.t === MSG.FRAME && readFrame(msg.d, L.frame)) {
+      frameToPose(L.frame, L.tracked);
+      L.lastAt = performance.now();
+    }
+  };
+  try {
+    await tr.host(L.room);
+  } catch (e) {
+    console.error(e);
+    if (L.transport !== tr) return;
+    L.state = 'error'; L.info = { code: 'load' };
+    renderLink(s);
+  }
+}
+
+function disconnectLink(s) {
+  const L = s.link;
+  L.transport?.close();
+  L.transport = null;
+  L.state = 'closed'; L.info = {}; L.route = ''; L.lastAt = 0;
+  renderLink(s);
+}
+
+/** 接続まわりの表示を今の状態に合わせる */
+function renderLink(s) {
+  const { q } = s, L = s.link;
+  const st = L.state;
+  const TEXT = {
+    closed: ['未接続', '未接続'],
+    starting: ['準備中…', '準備中'],
+    waiting: ['スマホからの接続を待っています', '接続待ち'],
+    connected: ['接続中', '接続中'],
+    reconnecting: ['接続が切れました。再接続を待っています…', '再接続中'],
+    error: ['接続の準備ができませんでした', '未接続'],
+  }[st] ?? ['未接続', '未接続'];
+  q('[data-out=conn]').textContent = TEXT[0];
+  q('[data-out=conn-chip]').textContent = 'スマホ ' + TEXT[1];
+  for (const dot of s.root.querySelectorAll('.vt-dot')) {
+    dot.classList.toggle('on', st === 'connected');
+    dot.classList.toggle('warn', st === 'reconnecting' || st === 'waiting' || st === 'starting');
+  }
+  q('[data-out=method]').textContent = st === 'connected'
+    ? `${L.transport.label}${L.route ? '・' + L.route : ''}`
+    : '接続方式 —';
+  q('[data-act=connect]').textContent =
+    st === 'closed' ? 'スマホを接続' : st === 'error' ? 'もう一度接続する' : st === 'connected' || st === 'reconnecting' ? '切断' : '接続をやめる';
+  q('[data-out=conn-hint]').textContent =
+    st === 'closed' ? '接続すると、スマホから送った顔の動きでキャラクターが動きます。'
+    : st === 'error' ? '接続用のファイルを読み込めませんでした。通信状況を確認して、もう一度試してください。'
+    : L.info.code === 'no-server' ? '接続用サーバーに届きません。インターネット接続を確認してください。自動でやり直しています。'
+    : st === 'reconnecting' ? '録画やキャラクターの表示はそのまま続きます。スマホ側が自動でつなぎ直します。'
+    : '';
+
+  const showCode = st === 'waiting' || st === 'reconnecting';
+  q('.vt-link').hidden = !showCode;
+  if (showCode && q('[data-out=code]').textContent !== L.room) {
+    const url = new URL('tracker.html', location.href);
+    q('[data-out=tracker-url]').textContent = url.host + url.pathname;
+    url.searchParams.set('room', L.room);
+    q('[data-out=code]').textContent = L.room;
+    drawQr(q('[data-out=qr]'), url.href);
+  }
+}
+
+/** QRコードを描く（qrcode.js は必要になったとき初めて読み込む） */
+async function drawQr(box, text) {
+  try {
+    const { default: qrcode } = await import('./qrcode.js');
+    const qr = qrcode(0, 'M');
+    qr.addData(text);
+    qr.make();
+    const n = qr.getModuleCount(), quiet = 4, scale = 6;
+    const c = document.createElement('canvas');
+    c.width = c.height = (n + quiet * 2) * scale;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    g.fillStyle = '#000';
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      if (qr.isDark(y, x)) g.fillRect((x + quiet) * scale, (y + quiet) * scale, scale, scale);
+    }
+    c.setAttribute('role', 'img');
+    c.setAttribute('aria-label', '接続用QRコード');
+    box.replaceChildren(c);
+  } catch (e) {
+    console.warn(e);
+    box.textContent = 'QRコードを表示できませんでした。下のコードを入力してください。';
+  }
 }
 
 // ---------- 毎フレームの処理 ----------
@@ -471,6 +647,7 @@ function frame(now) {
 
   s.mic.level = readMic(s.mic);
   idlePose(s, t, dt);
+  mixPose(s, now, dt);
   s.avatar.update(s.pose, dt);
 
   drawBackground(s);

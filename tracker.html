@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>顔トラッカー — キリトル</title>
+  <meta name="theme-color" content="#1b1d2e">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* スマホ側の画面専用。色とボタンは style.css のものを使う */
+    .tk { max-width: 520px; margin: 0 auto; padding: calc(20px + var(--safe-t)) 16px calc(28px + var(--safe-b)); }
+    .tk-head h1 { margin: 0; font-size: 22px; }
+    .tk-head p { margin: 2px 0 16px; color: var(--muted); font-size: 13px; }
+    .tk-card { background: var(--surface); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
+    .tk-card h2 { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+    .tk-status { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; font-weight: 700; }
+    .tk-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); flex: none; }
+    .tk-dot.on { background: #5fd38a; }
+    .tk-dot.warn { background: var(--accent); }
+    .tk-method { margin: 0 0 10px; color: var(--muted); font-size: 12.5px; min-height: 1.6em; }
+    .tk-field { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+    .tk-field input {
+      width: 100%; min-width: 0; min-height: 52px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--bg); color: var(--text); font-size: 26px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase;
+    }
+    .tk-slider { display: grid; grid-template-columns: 1fr auto; gap: 0 10px; align-items: center; margin-bottom: 10px; font-size: 13px; }
+    .tk-slider output { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 3.5em; text-align: right; }
+    .tk-slider input { grid-column: 1 / -1; width: 100%; height: 36px; accent-color: var(--accent); touch-action: pan-y; }
+    .tk-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .tk-row .btn { margin-top: 4px; }
+  </style>
+</head>
+<body>
+<main class="tk">
+  <header class="tk-head">
+    <h1>顔トラッカー</h1>
+    <p>キリトル VTuber収録用のスマホ側画面（テスト版）</p>
+  </header>
+
+  <section class="tk-card">
+    <p class="tk-status"><i id="dot" class="tk-dot"></i><span id="status">未接続</span></p>
+    <p id="method" class="tk-method"></p>
+    <label class="tk-field">接続コード（タブレットに表示される6文字）
+      <input id="room" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false">
+    </label>
+    <button id="connect" class="btn primary">接続</button>
+    <p id="hint" class="hint"></p>
+  </section>
+
+  <section class="tk-card">
+    <h2>テスト用の顔データ</h2>
+    <div id="sliders"></div>
+    <div class="tk-row">
+      <button id="reset" class="btn ghost">リセット</button>
+      <button id="auto" class="btn ghost" aria-pressed="false">自動で動かす</button>
+    </div>
+    <p class="hint">スライダーを動かすと、タブレットのキャラクターがすぐに動きます。送信 <span id="rate">0</span> 回/秒</p>
+  </section>
+</main>
+<div id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="tracker.js"></script>
+</body>
+</html>

@@ -1,12 +1,15 @@
 // tracker.js — スマホ側（顔トラッカー）の画面
 //
-// STEP 3: テスト用のスライダーで TrackingFrame を作り、タブレットへ送る。
-// STEP 4 では、スライダーの代わりに MediaPipe の結果を同じ frame に書き込むだけでよい
-// （接続・送信の処理はそのまま使う）。
+// 送るデータ(TrackingFrame)の出どころは2つ。どちらも同じ frame に書き込むだけで、
+// 接続・送信の処理は共通:
+//   ・カメラ（faceTracker.js が MediaPipe で顔を解析）… STEP 4
+//   ・手動テスト用のスライダー                       … STEP 3
+// カメラ映像はこの端末の外へ出さない。送るのは frame の数値だけ。
 
 import { createTransport, normalizeRoomCode } from './trackingTransport.js';
 import { PROTOCOL_VERSION, SEND_FPS, MSG, FRAME_RANGES, createFrame } from './trackingProtocol.js';
 import { toast, keepAwake } from './utils.js';
+import { FaceTracker } from './faceTracker.js';
 
 const $ = (id) => document.getElementById(id);
 const LAST_ROOM_KEY = 'kiritoru.lastRoom';
@@ -28,6 +31,7 @@ let dirty = true;                 // 前回の送信から値が変わったか
 let auto = false, autoStart = 0;
 let sent = 0;                     // 直近1秒の送信回数
 let releaseWake = null;
+let camera = 'stopped';           // カメラの状態: 'stopped' | 'loading' | 'running'
 
 // ---------- スライダー ----------
 const inputs = {};
@@ -51,6 +55,10 @@ function setValue(key, v, moveSlider) {
   if (moveSlider) it.input.value = frame[key];
   dirty = true;
 }
+function setSlidersEnabled(on) {
+  for (const key in inputs) inputs[key].input.disabled = !on;
+  $('reset').disabled = $('auto').disabled = !on;
+}
 $('reset').addEventListener('click', () => { for (const key in inputs) setValue(key, inputs[key].init, true); });
 $('auto').addEventListener('click', () => {
   auto = !auto; autoStart = performance.now();
@@ -70,12 +78,18 @@ function autoMove(now) {
 }
 
 // ---------- 送信（30fps前後・値が変わったときだけ）----------
-setInterval(() => {
-  if (auto) autoMove(performance.now());
+/** 今の frame を送る（つながっていて、値が変わっているときだけ）*/
+function flush() {
   if (state !== 'connected' || !dirty) return; // 変化が無いときの生存確認は通信側が自動で送る
   frame.timestamp = Date.now();
   frame.seq++;
   if (transport.send({ t: MSG.FRAME, d: frame })) { dirty = false; sent++; }
+}
+// スライダー・自動のときは一定間隔で送る。カメラのときは解析が終わるたびにすぐ送る（下の onValues）
+setInterval(() => {
+  if (camera !== 'stopped') return;
+  if (auto) autoMove(performance.now());
+  flush();
 }, 1000 / SEND_FPS);
 setInterval(() => { $('rate').textContent = String(sent); sent = 0; }, 1000);
 
@@ -96,9 +110,9 @@ async function connect() {
     if (transport !== tr) return;
     state = st; info = inf;
     if (st === 'connected') {
-      tr.send({ t: MSG.HELLO, v: PROTOCOL_VERSION, role: 'tracker', source: 'test-sliders' });
+      tr.send({ t: MSG.HELLO, v: PROTOCOL_VERSION, role: 'tracker', source: camera === 'running' ? 'mediapipe' : 'test-sliders' });
       dirty = true; // 今の値をすぐ送る
-      releaseWake ??= await keepAwake();
+      updateWake();
       tr.describeRoute().then((r) => { if (transport === tr) { route = r; render(); } });
       setTimeout(() => tr.describeRoute().then((r) => { if (transport === tr && r) { route = r; render(); } }), 3000);
     }
@@ -112,7 +126,7 @@ function disconnect() {
   transport?.close();
   transport = null;
   state = 'closed'; info = {}; route = '';
-  releaseWake?.(); releaseWake = null;
+  updateWake();
   render();
 }
 
@@ -138,6 +152,92 @@ function render() {
     : state === 'connected' ? '接続中は画面が消えないようにしています。'
     : '';
 }
+
+/** 接続中またはカメラ使用中は画面を消さない */
+async function updateWake() {
+  const need = state === 'connected' || state === 'reconnecting' || camera !== 'stopped';
+  if (need && !releaseWake) releaseWake = await keepAwake();
+  else if (!need && releaseWake) { releaseWake(); releaseWake = null; }
+}
+// 別のアプリから戻ってきたときは、画面を消さない設定が外れているので掛け直す
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && releaseWake) { releaseWake(); releaseWake = null; updateWake(); }
+});
+
+// ---------- カメラで顔トラッキング ----------
+const KEYS = ['headYaw', 'headPitch', 'headRoll', 'mouthOpen', 'leftEyeOpen', 'rightEyeOpen', 'smile', 'browUp'];
+const tracker = new FaceTracker({
+  video: $('cam'),
+  // 解析のたびに、結果を送信用の frame に写す
+  onValues: (v) => {
+    for (let i = 0; i < KEYS.length; i++) frame[KEYS[i]] = v[KEYS[i]];
+    frame.faceDetected = v.faceDetected;
+    dirty = true;
+    flush(); // 解析は最大30回/秒なので、送信もそれを超えない
+  },
+  onStatus: (st) => { camera = st; renderCamera(); updateWake(); },
+});
+
+$('cam-toggle').addEventListener('click', async () => {
+  if (camera !== 'stopped') { stopCamera(); return; }
+  if (auto) $('auto').click();
+  try {
+    await tracker.start();
+    if (state === 'connected') transport.send({ t: MSG.HELLO, v: PROTOCOL_VERSION, role: 'tracker', source: 'mediapipe' });
+  } catch (e) {
+    console.error(e);
+    toast(e.name === 'NotAllowedError' ? 'カメラの使用が許可されていません。ブラウザのサイト設定でカメラを許可してください。'
+      : e.name === 'NotFoundError' || e.name === 'NotSupportedError' ? 'カメラが見つかりませんでした。'
+      : '顔トラッキングを開始できませんでした。通信状況を確認して、もう一度試してください。', null, 8000);
+  }
+});
+function stopCamera() {
+  tracker.stop();
+  // スライダーの値に戻す
+  for (const key in inputs) setValue(key, Number(inputs[key].input.value), false);
+  frame.smile = 0; frame.browUp = 0; frame.faceDetected = true;
+  dirty = true;
+  flush();
+}
+$('calibrate').addEventListener('click', () => {
+  toast(tracker.calibrate() ? 'いまの向きを正面にしました' : '顔が見つかってから押してください');
+});
+$('head-gain').addEventListener('input', (e) => { tracker.headGain = Number(e.target.value); $('head-gain-out').textContent = tracker.headGain.toFixed(1); });
+$('mouth-gain').addEventListener('input', (e) => { tracker.mouthGain = Number(e.target.value); $('mouth-gain-out').textContent = tracker.mouthGain.toFixed(1); });
+$('max-fps').addEventListener('change', (e) => { tracker.maxFps = Number(e.target.value); });
+
+let faceShown = null;
+function renderCamera() {
+  $('cam-toggle').textContent = camera === 'stopped' ? 'カメラを開始' : camera === 'loading' ? '準備中…（押すと中止）' : 'カメラを停止';
+  $('cam-toggle').className = 'btn ' + (camera === 'stopped' ? 'primary' : 'ghost');
+  $('calibrate').disabled = camera !== 'running';
+  setSlidersEnabled(camera === 'stopped');
+  faceShown = null;
+  renderFace();
+}
+/** 顔の検出状態と現在の値（1秒に数回だけ書き換える）*/
+function renderFace() {
+  const found = camera === 'running' && tracker.values.faceDetected;
+  const key = camera + found;
+  if (key !== faceShown) {
+    faceShown = key;
+    $('face-status').textContent = camera === 'stopped' ? '停止中'
+      : camera === 'loading' ? '読み込み中…（初回は少し時間がかかります）'
+      : found ? '顔を検出しています' : '顔が見つかりません';
+    $('face-dot').className = 'tk-dot' + (found ? ' on' : camera === 'stopped' ? '' : ' warn');
+  }
+  const v = tracker.values;
+  $('values').textContent = found
+    ? `左右 ${v.headYaw.toFixed(0)}°　上下 ${v.headPitch.toFixed(0)}°　傾き ${v.headRoll.toFixed(0)}°\n口 ${v.mouthOpen.toFixed(2)}　左目 ${v.leftEyeOpen.toFixed(2)}　右目 ${v.rightEyeOpen.toFixed(2)}`
+    : camera === 'running' ? '顔全体がカメラに映るようにしてください。' : '';
+}
+setInterval(() => { if (camera !== 'stopped') renderFace(); }, 200);
+setInterval(() => {
+  $('track-rate').textContent = String(tracker.count);
+  $('track-cost').textContent = camera === 'running' && tracker.costMs ? `（1回 ${tracker.costMs.toFixed(0)} ミリ秒・${tracker.delegate}）` : '';
+  tracker.count = 0;
+}, 1000);
+renderCamera();
 
 // QRコードから開いたときはコードが付いているので、そのまま接続する
 const fromUrl = normalizeRoomCode(new URLSearchParams(location.search).get('room'));

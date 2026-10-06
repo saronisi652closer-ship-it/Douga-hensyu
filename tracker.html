@@ -29,13 +29,21 @@
     .tk-slider input { grid-column: 1 / -1; width: 100%; height: 36px; accent-color: var(--accent); touch-action: pan-y; }
     .tk-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .tk-row .btn { margin-top: 4px; }
+    .tk-cam { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 4px; }
+    .tk-preview { flex: none; width: 132px; aspect-ratio: 3 / 4; border-radius: 8px; overflow: hidden; background: #000; }
+    .tk-preview video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; } /* 鏡のように見せる（表示だけ） */
+    .tk-cam-info { min-width: 0; flex: 1; }
+    .tk-values { margin: 6px 0 0; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; line-height: 1.7; white-space: pre-line; }
+    .tk-select { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+    details.tk-card summary { cursor: pointer; font-size: 13px; color: var(--muted); font-weight: 700; min-height: 32px; display: flex; align-items: center; }
+    details.tk-card[open] summary { margin-bottom: 10px; }
   </style>
 </head>
 <body>
 <main class="tk">
   <header class="tk-head">
     <h1>顔トラッカー</h1>
-    <p>キリトル VTuber収録用のスマホ側画面（テスト版）</p>
+    <p>キリトル VTuber収録用のスマホ側画面</p>
   </header>
 
   <section class="tk-card">
@@ -49,14 +57,41 @@
   </section>
 
   <section class="tk-card">
-    <h2>テスト用の顔データ</h2>
+    <h2>カメラで顔トラッキング</h2>
+    <div class="tk-cam">
+      <div class="tk-preview"><video id="cam" playsinline muted></video></div>
+      <div class="tk-cam-info">
+        <p class="tk-status"><i id="face-dot" class="tk-dot"></i><span id="face-status">停止中</span></p>
+        <p id="values" class="tk-values"></p>
+      </div>
+    </div>
+    <button id="cam-toggle" class="btn primary">カメラを開始</button>
+    <button id="calibrate" class="btn ghost" disabled>いまの向きを正面にする</button>
+    <p class="hint">カメラの映像はこのスマホの中で解析するだけで、保存も送信もしません。タブレットへ送るのは顔の向きなどの数値だけです。</p>
+    <label class="tk-slider">頭の動きの大きさ<output id="head-gain-out">1.0</output>
+      <input id="head-gain" type="range" min="0.5" max="2" step="0.1" value="1" aria-label="頭の動きの大きさ">
+    </label>
+    <label class="tk-slider">口の開きやすさ<output id="mouth-gain-out">1.0</output>
+      <input id="mouth-gain" type="range" min="0.5" max="2" step="0.1" value="1" aria-label="口の開きやすさ">
+    </label>
+    <label class="tk-select">動作の軽さ
+      <select id="max-fps">
+        <option value="30">標準（1秒に30回まで）</option>
+        <option value="15">軽い（1秒に15回まで。発熱や電池が気になるとき）</option>
+      </select>
+    </label>
+    <p class="hint">解析 <span id="track-rate">0</span> 回/秒<span id="track-cost"></span>、送信 <span id="rate">0</span> 回/秒</p>
+  </section>
+
+  <details class="tk-card">
+    <summary>手動テスト（スライダー）</summary>
     <div id="sliders"></div>
     <div class="tk-row">
       <button id="reset" class="btn ghost">リセット</button>
       <button id="auto" class="btn ghost" aria-pressed="false">自動で動かす</button>
     </div>
-    <p class="hint">スライダーを動かすと、タブレットのキャラクターがすぐに動きます。送信 <span id="rate">0</span> 回/秒</p>
-  </section>
+    <p class="hint">カメラを止めているときに使えます。スライダーを動かすと、タブレットのキャラクターがすぐに動きます。</p>
+  </details>
 </main>
 <div id="toast" role="status" aria-live="polite"></div>
 <script type="module" src="tracker.js"></script>

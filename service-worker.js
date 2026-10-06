@@ -3,7 +3,7 @@
 // ★ ファイルを更新して GitHub に上げ直したら、下の VERSION の数字を変えること。
 //   （変えなくても次回起動時に裏で新しいファイルを取りに行くが、変えると確実に切り替わる）
 
-const VERSION = 'kiritoru-v5';
+const VERSION = 'kiritoru-v6';
 const FILES = [
   './',
   './index.html',
@@ -29,6 +29,7 @@ const FILES = [
   './trackingTransport.js',
   './tracker.html',
   './tracker.js',
+  './faceTracker.js',
   './peerjs.min.js',
   './qrcode.js',
   './icon.svg',
